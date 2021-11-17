@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/google/uuid"
+	_ "github.com/google/uuid"
 	lineblocs "bitbucket.org/infinitet3ch/lineblocs-go-helpers"
 	"github.com/CyCoreSystems/ari/v5"
 	"github.com/CyCoreSystems/ari/v5/client/native"
@@ -83,8 +83,8 @@ func sendToAssetServer( data []byte, filename string ) (error, string) {
 }
 func processRecordings() (error) {
 	fmt.Println("processRecordings called\r\n");
-	status := "pending"
-	results, err:= db.Query("SELECT id, status, storage_id, storage_server_ip FROM recordings WHERE status = ?", status)
+	status := "started"
+	results, err:= db.Query("SELECT id, status, storage_id, storage_server_ip FROM recordings WHERE status = ? AND relocation_attempts < 3", status)
 
 	if err != nil {
 		return err
@@ -100,11 +100,6 @@ func processRecordings() (error) {
 			return err
 		}
 		fmt.Printf("Storage ID=%s, Server IP=%s\r\n", storageId, storageServerIp)
-		uniq, err := uuid.NewUUID()
-		if err != nil {
-			fmt.Println(err.Error())
-			return err
-		}
 		ctx :=context.Background()
 		client, err := createARIConnection(ctx, storageServerIp)
 		if err != nil {
@@ -118,23 +113,26 @@ func processRecordings() (error) {
 			fmt.Println(err.Error())
 			stmt, err := db.Prepare("UPDATE recordings SET `relocation_attempts` = relocation_attempts + 1 WHERE `storage_id` = ?")
 			if err != nil {
-				return err
+				fmt.Println("error:"+err.Error())
+				continue
 			}
 			defer stmt.Close()
 			_, err = stmt.Exec(storageId)
 			if err != nil {
-				return err
+				fmt.Println("error:"+err.Error())
+				continue
 			}
-			return err
 		}
 		//data :=[]byte("")
- 		filename := (uniq.String() + ".wav")
+ 		//filename := (uniq.String() + ".wav")
+ 		filename := (storageId+ ".wav")
 		// contact the server
 		err,link  :=sendToAssetServer(data, filename)
 		if err != nil {
-			return err
+			fmt.Println("error:"+err.Error())
+			continue
 		}
-		stmt, err := db.Prepare("UPDATE recordings SET `s3_url` = ? WHERE `storage_id` = ?")
+		stmt, err := db.Prepare("UPDATE recordings SET `s3_url` = ?, `status`='processed' WHERE `storage_id` = ?")
 		if err != nil {
 			return err
 		}
