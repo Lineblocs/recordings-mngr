@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"context"
 	"time"
+	"bytes"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -49,7 +50,7 @@ func createTemporaryFile(data []byte, filename string) (string, error) {
 	}
 	return fullPathToFile, nil
 }
-func sendToAssetServer( path string, filename string ) (error, string) {
+func sendToAssetServer( data []byte, filename string ) (error, string) {
 	sess, err := session.NewSession(&aws.Config{ Region: aws.String(os.Getenv("AWS_DEFAULT_REGION")) })
 	if err != nil {
 		return fmt.Errorf("error occured: %v", err), ""
@@ -59,11 +60,7 @@ func sendToAssetServer( path string, filename string ) (error, string) {
 	// Create an uploader with the session and default options
 	uploader := s3manager.NewUploader(sess)
 
-	f, err  := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("failed to open file %q, %v", path, err), ""
-	}
-
+	f := bytes.NewReader(data)
 	bucket := "lineblocs"
 	key := "recordings/" + filename
 
@@ -133,11 +130,7 @@ func processRecordings() (error) {
 		//data :=[]byte("")
  		filename := (uniq.String() + ".wav")
 		// contact the server
- 		path, err :=createTemporaryFile(data, filename)
-		if err != nil {
-			return err
-		}
-		err,link  :=sendToAssetServer(path, filename)
+		err,link  :=sendToAssetServer(data, filename)
 		if err != nil {
 			return err
 		}
