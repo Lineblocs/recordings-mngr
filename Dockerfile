@@ -4,7 +4,9 @@
 FROM golang:1.17.1
 
 # Add Maintainer Info
-LABEL maintainer="Nadir Hamid <matrix.nad@gmail.com>"
+LABEL maintahe Go app
+RUN go build -o main main.go
+iner="Nadir Hamid <matrix.nad@gmail.com>"
 
 # Set the Current Working Directory inside the container
 WORKDIR /app
@@ -24,9 +26,7 @@ RUN GOPRIVATE=bitbucket.org/infinitet3ch go mod download
 # Copy the source from the current directory to the Working Directory inside the container
 COPY . .
 
-# Build the Go app
-RUN go build -o main main.go
-
+# Build t
 # Expose port 80 to the outside world (used for GRPC)
 EXPOSE 8018
 
