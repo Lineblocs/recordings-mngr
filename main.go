@@ -21,6 +21,11 @@ import (
 var db* sql.DB;
 
 
+func trimSilence( data []byte ) ([]byte, error) {
+
+	return data, nil
+
+}
 func createARIConnection(connectCtx context.Context, serverIp string) (ari.Client, error) {
  	fmt.Println("Connecting to: " + os.Getenv("ARI_URL"))
 	 ariApp:="lineblocs-recordings"
@@ -84,7 +89,7 @@ func sendToAssetServer( data []byte, filename string ) (error, string) {
 func processRecordings() (error) {
 	fmt.Println("processRecordings called\r\n");
 	status := "started"
-	results, err:= db.Query("SELECT id, status, storage_id, storage_server_ip FROM recordings WHERE status = ? AND relocation_attempts < 3", status)
+	results, err:= db.Query("SELECT id, status, storage_id, storage_server_ip, trim FROM recordings WHERE status = ? AND relocation_attempts < 3", status)
 
 	if err != nil {
 		return err
@@ -95,7 +100,8 @@ func processRecordings() (error) {
 		var status string
 		var storageId string
 		var storageServerIp string
-		err = results.Scan(&id, &status,&storageId,&storageServerIp)
+		var trim bool
+		err = results.Scan(&id, &status,&storageId,&storageServerIp, &trim)
 		if err != nil {
 			return err
 		}
@@ -118,6 +124,13 @@ func processRecordings() (error) {
 			}
 			defer stmt.Close()
 			_, err = stmt.Exec(storageId)
+			if err != nil {
+				fmt.Println("error:"+err.Error())
+				continue
+			}
+		}
+		if trim {
+			data,err = trimSilence( data )
 			if err != nil {
 				fmt.Println("error:"+err.Error())
 				continue
