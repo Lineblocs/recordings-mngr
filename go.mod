@@ -3,7 +3,7 @@ module lineblocs.com/recordings
 go 1.17
 
 require (
-	bitbucket.org/infinitet3ch/lineblocs-go-helpers v0.0.0-20210723000142-7b8ed9cfaa26
+	github.com/Lineblocs/go-helpers v0.0.0-20210723000142-7b8ed9cfaa26
 	github.com/CyCoreSystems/ari/v5 v5.2.0
 	github.com/aws/aws-sdk-go v1.42.13
 	github.com/go-sql-driver/mysql v1.6.0

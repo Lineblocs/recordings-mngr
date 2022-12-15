@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	_ "github.com/google/uuid"
-	lineblocs "bitbucket.org/infinitet3ch/lineblocs-go-helpers"
+	lineblocs "github.com/Lineblocs/go-helpers"
 	"github.com/CyCoreSystems/ari/v5"
 	"github.com/CyCoreSystems/ari/v5/client/native"
 )

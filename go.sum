@@ -1,5 +1,5 @@
-bitbucket.org/infinitet3ch/lineblocs-go-helpers v0.0.0-20210723000142-7b8ed9cfaa26 h1:W2JNlIqnCDZTMncP9QHdErUHZ1/I4NbXk79sSzBxoT0=
-bitbucket.org/infinitet3ch/lineblocs-go-helpers v0.0.0-20210723000142-7b8ed9cfaa26/go.mod h1:45xnfyAMD5hSOudLqN0nSllAgB5ra+h8yBgYb9KmBNc=
+github.com/Lineblocs/go-helpers v0.0.0-20210723000142-7b8ed9cfaa26 h1:W2JNlIqnCDZTMncP9QHdErUHZ1/I4NbXk79sSzBxoT0=
+github.com/Lineblocs/go-helpers v0.0.0-20210723000142-7b8ed9cfaa26/go.mod h1:45xnfyAMD5hSOudLqN0nSllAgB5ra+h8yBgYb9KmBNc=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/CyCoreSystems/ari/v5 v5.2.0 h1:W7JShdjS7NTFVnXH1BQj5FUD7zPu1sm6LIeT2/yrvU8=
