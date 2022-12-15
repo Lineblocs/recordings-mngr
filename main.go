@@ -83,7 +83,7 @@ func sendToAssetServer( data []byte, filename string ) (error, string) {
 
 
 	// send back link to media
-	url := "https://mediafs." + os.Getenv("DEPLOYMENT_DOMAIN") + key
+	url := "https://mediafs." + os.Getenv("DEPLOYMENT_DOMAIN") + "/" + key
 	return nil, url
 }
 func processRecordings() (error) {
