@@ -28,7 +28,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v3
         with:
-          images: lineblocs/recordings-mngr
+          images: lineblocs/billing-mngr
 
       - name: Build and push
         uses: docker/build-push-action@v2
