@@ -8,17 +8,41 @@ import (
 	"context"
 	"time"
 	"bytes"
+
+	"net/url"
+	"net/http"
+	"encoding/json"
+	"errors"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/joho/godotenv"
 	_ "github.com/google/uuid"
 	lineblocs "github.com/Lineblocs/go-helpers"
 	"github.com/CyCoreSystems/ari/v5"
 	"github.com/CyCoreSystems/ari/v5/client/native"
 )
 
+type Settings struct {
+	AwsAccessKeyId           string `json:"aws_access_key_id"`
+	AwsSecretAccessKey       string `json:"aws_secret_access_key"`
+	AwsRegion                string `json:"aws_region"`
+	StripePubKey             string `json:"stripe_pub_key"`
+	StripePrivateKey         string `json:"stripe_private_key"`
+	StripeTestPubKey         string `json:"stripe_test_pub_key"`
+	StripeTestPrivateKey     string `json:"stripe_test_private_key"`
+	StripeMode               string `json:"stripe_mode"`
+	SmtpHost                 string `json:"smtp_host"`
+	SmtpPort                 string `json:"smtp_port"`
+	SmtpUser                 string `json:"smtp_user"`
+	SmtpPassword             string `json:"smtp_password"`
+	SmtpTls                  string `json:"smtp_tls"`
+	GoogleServiceAccountJson string `json:"google_service_account_json"`
+}
+
 var db* sql.DB;
+var settings* Settings;
 
 
 func trimSilence( data []byte ) ([]byte, error) {
@@ -26,9 +50,21 @@ func trimSilence( data []byte ) ([]byte, error) {
 	return data, nil
 
 }
+
+func createMediaUrl(s3Key string) (string) {
+	baseUrl := os.Getenv("MEDIA_API_URL")
+	return (baseUrl + "/" + s3Key)
+}
+
+func createApiUrl( path string ) (string) {
+	//var baseUrl string = "https://internals." + os.Getenv("DEPLOYMENT_DOMAIN")
+	var baseUrl string = os.Getenv("API_URL")
+	return baseUrl + path
+}
+
 func createARIConnection(connectCtx context.Context, serverIp string) (ari.Client, error) {
  	fmt.Println("Connecting to: " + os.Getenv("ARI_URL"))
-	 ariApp:="lineblocs-recordings"
+	 ariApp:=os.Getenv("ARI_RECORDING_APP")
 	 url:= "http://" + serverIp + ":8088/ari"
 	 wsUrl:= "ws://" + serverIp + ":8088/ari/events"
        cl, err := native.Connect(&native.Options{
@@ -55,8 +91,66 @@ func createTemporaryFile(data []byte, filename string) (string, error) {
 	}
 	return fullPathToFile, nil
 }
+
+func sendApiRequest(path string, vals map[string]string) (string, error) {
+	fullUrl := createApiUrl( path + "?" )
+
+	for k, v := range vals {
+		fullUrl = fullUrl + (k + "=" + url.QueryEscape(v)) + "&"
+	}
+	fmt.Println("URL:>", fullUrl)
+
+	req, err := http.NewRequest("GET", fullUrl, bytes.NewBuffer([]byte("")))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	bodyAsString := string(body)
+
+	fmt.Println("response Body:", bodyAsString)
+	fmt.Println("response Status:", resp.Status)
+	status := resp.StatusCode
+	if !(status >= 200 && status <= 299) {
+		return "", errors.New("Status: " + resp.Status + " result: " + bodyAsString)
+	}
+	return bodyAsString, nil
+}
+
+func getSettings() (*Settings, error) {
+	fmt.Println("getting settings")
+
+	params := make(map[string]string)
+	res, err := sendApiRequest("/user/getSettings", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var data Settings
+	err = json.Unmarshal([]byte(res), &data)
+	if err != nil {
+		fmt.Println("get settings err " + err.Error())
+		return nil, err
+	}
+
+	return &data, nil
+}
+
 func sendToAssetServer( data []byte, filename string ) (error, string) {
-	sess, err := session.NewSession(&aws.Config{ Region: aws.String(os.Getenv("AWS_DEFAULT_REGION")) })
+	sess, err := session.NewSession(&aws.Config{
+        Region: aws.String(settings.AwsRegion),
+        Credentials: credentials.NewStaticCredentials(
+			settings.AwsAccessKeyId, 
+			settings.AwsSecretAccessKey, 
+			""),
+    })
 	if err != nil {
 		return fmt.Errorf("error occured: %v", err), ""
 	}
@@ -66,7 +160,7 @@ func sendToAssetServer( data []byte, filename string ) (error, string) {
 	uploader := s3manager.NewUploader(sess)
 
 	f := bytes.NewReader(data)
-	bucket := "lineblocs"
+	bucket := os.Getenv("S3_BUCKET")
 	key := "recordings/" + filename
 
 	fmt.Printf("Uploading to %s\r\n", key)
@@ -83,7 +177,8 @@ func sendToAssetServer( data []byte, filename string ) (error, string) {
 
 
 	// send back link to media
-	url := "https://mediafs." + os.Getenv("DEPLOYMENT_DOMAIN") + "/" + key
+	url := createMediaUrl(key)
+
 	return nil, url
 }
 func processRecordings() (error) {
@@ -159,6 +254,21 @@ func processRecordings() (error) {
 }
 func main() {
 	var err error
+
+	loadDotEnv := os.Getenv("USE_DOTENV")
+	if loadDotEnv != "off" {
+		fmt.Println("loading env settings with dotenv")
+		err := godotenv.Load(".env")
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	settings, err = getSettings()
+	if err != nil {
+		panic(err)
+	}
+
 	db, err =lineblocs.CreateDBConn()
 	if err != nil {
 		panic(err)
