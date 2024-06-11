@@ -13,10 +13,13 @@ import (
 	"net/http"
 	"encoding/json"
 	"errors"
+	"strconv"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+    "github.com/aws/aws-sdk-go/aws/credentials"
+
 	"github.com/joho/godotenv"
 	_ "github.com/google/uuid"
 	lineblocs "github.com/Lineblocs/go-helpers"
@@ -28,6 +31,7 @@ type Settings struct {
 	AwsAccessKeyId           string `json:"aws_access_key_id"`
 	AwsSecretAccessKey       string `json:"aws_secret_access_key"`
 	AwsRegion                string `json:"aws_region"`
+	S3Bucket               string `json:"s3_bucket"`
 	StripePubKey             string `json:"stripe_pub_key"`
 	StripePrivateKey         string `json:"stripe_private_key"`
 	StripeTestPubKey         string `json:"stripe_test_pub_key"`
@@ -51,6 +55,11 @@ func trimSilence( data []byte ) ([]byte, error) {
 
 }
 
+func getLineblocsKey( ) (string) {
+	var key string = os.Getenv("LINEBLOCS_KEY")
+	return key
+}
+
 func createMediaUrl(s3Key string) (string) {
 	baseUrl := os.Getenv("MEDIA_API_URL")
 	return (baseUrl + "/" + s3Key)
@@ -63,22 +72,24 @@ func createApiUrl( path string ) (string) {
 }
 
 func createARIConnection(connectCtx context.Context, serverIp string) (ari.Client, error) {
- 	fmt.Println("Connecting to: " + os.Getenv("ARI_URL"))
-	 ariApp:=os.Getenv("ARI_RECORDING_APP")
-	 url:= "http://" + serverIp + ":8088/ari"
-	 wsUrl:= "ws://" + serverIp + ":8088/ari/events"
-       cl, err := native.Connect(&native.Options{
-               Application:  ariApp,
-               Username:     os.Getenv("ARI_USERNAME"),
-               Password:     os.Getenv("ARI_PASSWORD"),
-               URL:          url,
-               WebsocketURL: wsUrl})
-        if err != nil {
-               fmt.Println("Failed to build native ARI client", "error", err)
-               fmt.Println( "error occured: " + err.Error() )
-               return nil, err
-        }
-       return cl, err
+	fmt.Println("Connecting to: " + os.Getenv("ARI_URL"))
+	ariApp:=os.Getenv("ARI_RECORDING_APP")
+	url:= os.Getenv("ARI_URL")
+	wsUrl:= os.Getenv("ARI_WSURL")
+	cl, err := native.Connect(&native.Options{
+			Application:  ariApp,
+			Username:     os.Getenv("ARI_USERNAME"),
+			Password:     os.Getenv("ARI_PASSWORD"),
+			URL:          url,
+			WebsocketURL: wsUrl})
+	if err != nil {
+			fmt.Println("Failed to build native ARI client", "error", err)
+			fmt.Println( "error occured: " + err.Error() )
+			return nil, err
+	}
+
+	fmt.Println("Connected to ARI server successfully.")
+	return cl, err
  }
 
 func createTemporaryFile(data []byte, filename string) (string, error) {
@@ -102,6 +113,7 @@ func sendApiRequest(path string, vals map[string]string) (string, error) {
 
 	req, err := http.NewRequest("GET", fullUrl, bytes.NewBuffer([]byte("")))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Lineblocs-Api-Token", getLineblocsKey())
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -115,8 +127,6 @@ func sendApiRequest(path string, vals map[string]string) (string, error) {
 	}
 	bodyAsString := string(body)
 
-	fmt.Println("response Body:", bodyAsString)
-	fmt.Println("response Status:", resp.Status)
 	status := resp.StatusCode
 	if !(status >= 200 && status <= 299) {
 		return "", errors.New("Status: " + resp.Status + " result: " + bodyAsString)
@@ -143,27 +153,31 @@ func getSettings() (*Settings, error) {
 	return &data, nil
 }
 
-func sendToAssetServer( data []byte, filename string ) (error, string) {
+func sendToAssetServer(data []byte, filename string) (string, error) {
 	sess, err := session.NewSession(&aws.Config{
-        Region: aws.String(settings.AwsRegion),
-        Credentials: credentials.NewStaticCredentials(
-			settings.AwsAccessKeyId, 
-			settings.AwsSecretAccessKey, 
-			""),
-    })
+		Region: aws.String(settings.AwsRegion),
+		Credentials: credentials.NewStaticCredentials(
+			settings.AwsAccessKeyId,
+			settings.AwsSecretAccessKey,
+			"",
+		),
+	})
 	if err != nil {
-		return fmt.Errorf("error occured: %v", err), ""
+		return "", fmt.Errorf("error occurred while creating AWS session: %v", err)
 	}
-
 
 	// Create an uploader with the session and default options
 	uploader := s3manager.NewUploader(sess)
 
 	f := bytes.NewReader(data)
-	bucket := os.Getenv("S3_BUCKET")
+	//bucket := os.Getenv("S3_BUCKET")
+	bucket := settings.S3Bucket
+	if bucket == "" {
+		return "", fmt.Errorf("S3_BUCKET environment variable is not set")
+	}
 	key := "recordings/" + filename
 
-	fmt.Printf("Uploading to %s\r\n", key)
+	fmt.Printf("Uploading to %s\n", key)
 	// Upload the file to S3.
 	result, err := uploader.Upload(&s3manager.UploadInput{
 		Bucket: aws.String(bucket),
@@ -171,35 +185,44 @@ func sendToAssetServer( data []byte, filename string ) (error, string) {
 		Body:   f,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to upload file, %v", err), ""
+		return "", fmt.Errorf("failed to upload file, %v", err)
 	}
 	fmt.Printf("file uploaded to, %s\n", aws.StringValue(&result.Location))
-
 
 	// send back link to media
 	url := createMediaUrl(key)
 
-	return nil, url
+	return url, nil
 }
+
 func processRecordings() (error) {
 	fmt.Println("processRecordings called\r\n");
-	status := "started"
-	results, err:= db.Query("SELECT id, status, storage_id, storage_server_ip, trim FROM recordings WHERE status = ? AND relocation_attempts < 3", status)
+	status := "completed"
+	results, err:= db.Query("SELECT id, status, storage_id, storage_server_ip, trim FROM recordings WHERE status = ?", status)
 
 	if err != nil {
 		return err
 	}
   	defer results.Close()
     for results.Next() {
-		var id string
+		var id int
 		var status string
 		var storageId string
 		var storageServerIp string
 		var trim bool
+
+		fmt.Println("processRecordings processing record: " + strconv.Itoa(id))
 		err = results.Scan(&id, &status,&storageId,&storageServerIp, &trim)
 		if err != nil {
-			return err
+			fmt.Println("error:"+err.Error())
+			continue
 		}
+
+		if storageId == "" {
+			fmt.Println("storage id is empty for recording id: " + strconv.Itoa(id))
+			continue
+		}
+
 		fmt.Printf("Storage ID=%s, Server IP=%s\r\n", storageId, storageServerIp)
 		ctx :=context.Background()
 		client, err := createARIConnection(ctx, storageServerIp)
@@ -231,18 +254,23 @@ func processRecordings() (error) {
 				continue
 			}
 		}
+
+		fmt.Printf("sending recording %d to asset server", strconv.Itoa(id))
 		//data :=[]byte("")
  		//filename := (uniq.String() + ".wav")
  		filename := (storageId+ ".wav")
 		// contact the server
-		err,link  :=sendToAssetServer(data, filename)
+		link,err :=sendToAssetServer(data, filename)
 		if err != nil {
 			fmt.Println("error:"+err.Error())
 			continue
 		}
+
+		fmt.Printf("generated S3 link: %s", link)
 		stmt, err := db.Prepare("UPDATE recordings SET `s3_url` = ?, `status`='processed' WHERE `storage_id` = ?")
 		if err != nil {
-			return err
+			fmt.Println("error while db:"+err.Error())
+			continue
 		}
 		defer stmt.Close()
 		_, err = stmt.Exec(link, storageId)
