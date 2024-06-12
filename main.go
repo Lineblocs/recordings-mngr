@@ -187,12 +187,17 @@ func sendToAssetServer(data []byte, filename string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to upload file, %v", err)
 	}
-	fmt.Printf("file uploaded to, %s\n", aws.StringValue(&result.Location))
+
+	s3Url := aws.StringValue(&result.Location)
+
+	fmt.Printf("file uploaded to, %s\n", s3Url)
 
 	// send back link to media
-	url := createMediaUrl(key)
+	// url := createMediaUrl(key)
 
-	return url, nil
+	// return url, nil
+
+	return s3Url, nil
 }
 
 func processRecordings() (error) {
