@@ -230,9 +230,9 @@ func processRecordings() (error) {
 			fmt.Println(err.Error())
 			return err
 		}
-		src := ari.NewKey(ari.StoredRecordingKey, storageId)
-		//data,err := client.StoredRecording().File(src)
+		src := ari.NewKey(ari.StoredRecordingKey, strconv.Itoa(id))
 		data,err := client.StoredRecording().File(src)
+
 		if err != nil {
 			fmt.Println(err.Error())
 			stmt, err := db.Prepare("UPDATE recordings SET `relocation_attempts` = relocation_attempts + 1 WHERE `storage_id` = ?")
@@ -255,7 +255,7 @@ func processRecordings() (error) {
 			}
 		}
 
-		fmt.Printf("sending recording %d to asset server", strconv.Itoa(id))
+		fmt.Printf("sending recording %d to asset server", id)
 		//data :=[]byte("")
  		//filename := (uniq.String() + ".wav")
  		filename := (storageId+ ".wav")

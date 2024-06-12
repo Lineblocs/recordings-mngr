@@ -41,4 +41,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )
 
-replace github.com/CyCoreSystems/ari/v5 => github.com/nadirhamid/ari/v5 v5.2.5
+replace github.com/CyCoreSystems/ari/v5 => github.com/nadirhamid/ari/v5 v5.2.6
