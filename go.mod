@@ -1,6 +1,6 @@
-module lineblocs.com/billing
+module lineblocs.com/recordings
 
-go 1.17
+go 1.22
 
 require github.com/Lineblocs/go-helpers v0.0.0-20221215231109-1cd12c0bfaa6
 
