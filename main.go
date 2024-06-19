@@ -47,6 +47,7 @@ type Settings struct {
 
 var db* sql.DB;
 var settings* Settings;
+var ariClient* ari.Client;
 
 
 func trimSilence( data []byte ) ([]byte, error) {
@@ -71,7 +72,7 @@ func createApiUrl( path string ) (string) {
 	return baseUrl + path
 }
 
-func createARIConnection(connectCtx context.Context, serverIp string) (ari.Client, error) {
+func createARIConnection(connectCtx context.Context, serverIp string) (*ari.Client, error) {
 	fmt.Println("Connecting to: " + os.Getenv("ARI_URL"))
 	ariApp:=os.Getenv("ARI_RECORDING_APP")
 	url:= os.Getenv("ARI_URL")
@@ -89,7 +90,7 @@ func createARIConnection(connectCtx context.Context, serverIp string) (ari.Clien
 	}
 
 	fmt.Println("Connected to ARI server successfully.")
-	return cl, err
+	return &cl, err
  }
 
 func createTemporaryFile(data []byte, filename string) (string, error) {
@@ -101,6 +102,13 @@ func createTemporaryFile(data []byte, filename string) (string, error) {
 			return "", err
 	}
 	return fullPathToFile, nil
+}
+
+// TODO: this should be updated to get a unique
+// ARI connection for each storage server. in essence, it should pick a connection
+// from a list/hashmap
+func retrieveARIConnection(storageServerIp string) (*ari.Client, error) {
+	return ariClient, nil
 }
 
 func sendApiRequest(path string, vals map[string]string) (string, error) {
@@ -209,6 +217,7 @@ func processRecordings() (error) {
 		return err
 	}
   	defer results.Close()
+
     for results.Next() {
 		var id int
 		var status string
@@ -229,14 +238,15 @@ func processRecordings() (error) {
 		}
 
 		fmt.Printf("Storage ID=%s, Server IP=%s\r\n", storageId, storageServerIp)
-		ctx :=context.Background()
-		client, err := createARIConnection(ctx, storageServerIp)
-		if err != nil {
-			fmt.Println(err.Error())
-			return err
-		}
 		src := ari.NewKey(ari.StoredRecordingKey, strconv.Itoa(id))
-		data,err := client.StoredRecording().File(src)
+
+		client, err :=retrieveARIConnection( storageServerIp)
+		if err != nil {
+			fmt.Println("could not get ARI connection for storage server. error: %s", err.Error())
+			continue
+		}
+
+		data,err := (*client).StoredRecording().File(src)
 
 		if err != nil {
 			fmt.Println(err.Error())
@@ -306,6 +316,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	storageServerIp := os.Getenv("ARI_HOST")
+	ctx :=context.Background()
+	ariClient, err = createARIConnection(ctx, storageServerIp)
+	if err != nil {
+		panic(err)
+	}
+
 	for ;; {
 		err := processRecordings()
 		if err != nil {

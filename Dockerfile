@@ -30,6 +30,5 @@ RUN go build -o main main.go
 # Expose port 80 to the outside world (used for GRPC)
 EXPOSE 8018
 
-RUN ls -a /app/
 # Command to run the executable
 ENTRYPOINT ["/bin/bash", "./entrypoint.sh"]
