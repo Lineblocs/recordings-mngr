@@ -209,7 +209,7 @@ func sendToAssetServer(data []byte, filename string) (string, error) {
 }
 
 func processRecordings() (error) {
-	fmt.Println("processRecordings called\r\n");
+	//fmt.Println("processRecordings called\r\n");
 	status := "completed"
 	results, err:= db.Query("SELECT id, status, storage_id, storage_server_ip, trim FROM recordings WHERE status = ?", status)
 
@@ -324,6 +324,7 @@ func main() {
 		panic(err)
 	}
 
+	fmt.Println("starting recordings manager service.")
 	for ;; {
 		err := processRecordings()
 		if err != nil {
