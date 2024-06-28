@@ -25,6 +25,7 @@ import (
 	lineblocs "github.com/Lineblocs/go-helpers"
 	"github.com/CyCoreSystems/ari/v5"
 	"github.com/CyCoreSystems/ari/v5/client/native"
+	"github.com/confluentinc/confluent-kafka-go/kafka"
 )
 
 type Settings struct {
@@ -159,6 +160,31 @@ func getSettings() (*Settings, error) {
 	}
 
 	return &data, nil
+}
+
+func startRecordingsConsumer() {
+	topics := "recordings-queue"
+	servers := os.Getenv("KAFKA_SERVER_ENDPOINTS")
+	consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
+		"bootstrap.servers":    servers,
+		"group.id":             "foo",
+		"auto.offset.reset":    "smallest"})
+	err = consumer.SubscribeTopics(topics, nil)
+
+	for run == true {
+		ev := consumer.Poll(100)
+		switch e := ev.(type) {
+		case *kafka.Message:
+			// application-specific processing
+		case kafka.Error:
+			fmt.Fprintf(os.Stderr, "%% Error: %v\n", e)
+			run = false
+		default:
+			fmt.Printf("Ignored %v\n", e)
+		}
+	}
+
+	consumer.Close()
 }
 
 func sendToAssetServer(data []byte, filename string) (string, error) {
