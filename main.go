@@ -50,6 +50,9 @@ type Settings struct {
 
 type recordingData struct {
 	RecordingId int    `json:"id"`
+	StorageId string `json:"storage_id"`
+	StorageServerIp string `json:"storage_server_ip"`
+	Trim bool `json:"trim"`
 	Status      string `json:"status"`
 }
 
@@ -222,7 +225,16 @@ func startRecordingsConsumer() {
 
 				// Log attributes of recordingData
 				fmt.Printf("Received Recording ID: %d, Status: %s\n", recording.RecordingId, recording.Status)
-
+				fmt.Printf("processing Recording ID: %d\n", recording.RecordingId)
+				// process the recording
+				err = processRecording(recording.RecordingId, 
+					recording.StorageId, 
+					recording.Status, 
+					recording.StorageServerIp,
+					recording.Trim)
+				if err != nil {
+					fmt.Printf("errror while processing Recording %s\r\n", err.Error())
+				}
 			case kafka.Error:
 				fmt.Fprintf(os.Stderr, "%% Error: %v: %v\n", e.Code(), e)
 				if e.Code() == kafka.ErrAllBrokersDown {
@@ -285,6 +297,69 @@ func sendToAssetServer(data []byte, filename string) (string, error) {
 	return s3Url, nil
 }
 
+func processRecording(id int, storageId string, status string, storageServerIp string, trim bool) (error) {
+
+	fmt.Println("processRecording processing record: " + strconv.Itoa(id))
+
+	if storageId == "" {
+		return errors.New("storage id is empty for recording id: " + strconv.Itoa(id))
+	}
+
+	fmt.Printf("Storage ID=%s, Server IP=%s\r\n", storageId, storageServerIp)
+	src := ari.NewKey(ari.StoredRecordingKey, strconv.Itoa(id))
+
+	client, err :=retrieveARIConnection( storageServerIp)
+	if err != nil {
+		return err
+	}
+
+	data,err := (*client).StoredRecording().File(src)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		stmt, err := db.Prepare("UPDATE recordings SET `relocation_attempts` = relocation_attempts + 1 WHERE `storage_id` = ?")
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		_, err = stmt.Exec(storageId)
+		if err != nil {
+			return err
+		}
+	}
+
+	if trim {
+		data,err = trimSilence( data )
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("sending recording %d to asset server", id)
+	//data :=[]byte("")
+	//filename := (uniq.String() + ".wav")
+	filename := (storageId+ ".wav")
+	// contact the server
+	link,err :=sendToAssetServer(data, filename)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("generated S3 link: %s", link)
+	stmt, err := db.Prepare("UPDATE recordings SET `s3_url` = ?, `status`='processed' WHERE `storage_id` = ?")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(link, storageId)
+	if err != nil {
+		return err
+	}
+	
+	return nil
+}
+
 func processRecordings() (error) {
 	//fmt.Println("processRecordings called\r\n");
 	status := "completed"
@@ -305,71 +380,17 @@ func processRecordings() (error) {
 		fmt.Println("processRecordings processing record: " + strconv.Itoa(id))
 		err = results.Scan(&id, &status,&storageId,&storageServerIp, &trim)
 		if err != nil {
-			fmt.Println("error:"+err.Error())
+			fmt.Println("error occured while scanning row in recordings table: " + err.Error())
 			continue
 		}
 
-		if storageId == "" {
-			fmt.Println("storage id is empty for recording id: " + strconv.Itoa(id))
+		err := processRecording(id, storageId, status, storageServerIp, trim)
+		if err != nil {
+			fmt.Println("processRecording error: " + err.Error())
 			continue
-		}
-
-		fmt.Printf("Storage ID=%s, Server IP=%s\r\n", storageId, storageServerIp)
-		src := ari.NewKey(ari.StoredRecordingKey, strconv.Itoa(id))
-
-		client, err :=retrieveARIConnection( storageServerIp)
-		if err != nil {
-			fmt.Println("could not get ARI connection for storage server. error: %s", err.Error())
-			continue
-		}
-
-		data,err := (*client).StoredRecording().File(src)
-
-		if err != nil {
-			fmt.Println(err.Error())
-			stmt, err := db.Prepare("UPDATE recordings SET `relocation_attempts` = relocation_attempts + 1 WHERE `storage_id` = ?")
-			if err != nil {
-				fmt.Println("error:"+err.Error())
-				continue
-			}
-			defer stmt.Close()
-			_, err = stmt.Exec(storageId)
-			if err != nil {
-				fmt.Println("error:"+err.Error())
-				continue
-			}
-		}
-		if trim {
-			data,err = trimSilence( data )
-			if err != nil {
-				fmt.Println("error:"+err.Error())
-				continue
-			}
-		}
-
-		fmt.Printf("sending recording %d to asset server", id)
-		//data :=[]byte("")
- 		//filename := (uniq.String() + ".wav")
- 		filename := (storageId+ ".wav")
-		// contact the server
-		link,err :=sendToAssetServer(data, filename)
-		if err != nil {
-			fmt.Println("error:"+err.Error())
-			continue
-		}
-
-		fmt.Printf("generated S3 link: %s", link)
-		stmt, err := db.Prepare("UPDATE recordings SET `s3_url` = ?, `status`='processed' WHERE `storage_id` = ?")
-		if err != nil {
-			fmt.Println("error while db:"+err.Error())
-			continue
-		}
-		defer stmt.Close()
-		_, err = stmt.Exec(link, storageId)
-		if err != nil {
-			return err
 		}
 	}
+
 	return nil
 }
 func main() {
