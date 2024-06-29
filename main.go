@@ -3,6 +3,7 @@ import (
 	//"log"
 	"io/ioutil"
 	"os"
+	"os/signal"
 	"fmt"
 	"database/sql"
 	"context"
@@ -14,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"syscall"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -44,6 +46,11 @@ type Settings struct {
 	SmtpPassword             string `json:"smtp_password"`
 	SmtpTls                  string `json:"smtp_tls"`
 	GoogleServiceAccountJson string `json:"google_service_account_json"`
+}
+
+type recordingData struct {
+	RecordingId int    `json:"id"`
+	Status      string `json:"status"`
 }
 
 var db* sql.DB;
@@ -163,28 +170,72 @@ func getSettings() (*Settings, error) {
 }
 
 func startRecordingsConsumer() {
-	topics := "recordings-queue"
+	topics := []string{os.Getenv("KAFKA_RECORDINGS_TOPIC")}
 	servers := os.Getenv("KAFKA_SERVER_ENDPOINTS")
-	consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
-		"bootstrap.servers":    servers,
-		"group.id":             "foo",
-		"auto.offset.reset":    "smallest"})
-	err = consumer.SubscribeTopics(topics, nil)
+	run := true
 
-	for run == true {
-		ev := consumer.Poll(100)
-		switch e := ev.(type) {
-		case *kafka.Message:
-			// application-specific processing
-		case kafka.Error:
-			fmt.Fprintf(os.Stderr, "%% Error: %v\n", e)
+	// Consumer configuration
+	consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
+		"bootstrap.servers": servers,
+		"group.id":          "foo",
+		"auto.offset.reset": "earliest",
+	})
+	if err != nil {
+		fmt.Printf("Error creating consumer: %v\n", err)
+		return
+	}
+	defer func() {
+		consumer.Close()
+	}()
+
+	// Subscribe to topics
+	err = consumer.SubscribeTopics(topics, nil)
+	if err != nil {
+		fmt.Printf("Error subscribing to topic: %v\n", err)
+		return
+	}
+
+	// Handle OS signals for graceful shutdown
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+
+	for run {
+		select {
+		case sig := <-signals:
+			fmt.Printf("Caught signal %v: terminating\n", sig)
 			run = false
 		default:
-			fmt.Printf("Ignored %v\n", e)
+			ev := consumer.Poll(100)
+			if ev == nil {
+				continue
+			}
+
+			switch e := ev.(type) {
+			case *kafka.Message:
+				// Parse the JSON message
+				var recording recordingData
+				err := json.Unmarshal(e.Value, &recording)
+				if err != nil {
+					fmt.Printf("Error decoding JSON message: %v\n", err)
+					continue
+				}
+
+				// Log attributes of recordingData
+				fmt.Printf("Received Recording ID: %d, Status: %s\n", recording.RecordingId, recording.Status)
+
+			case kafka.Error:
+				fmt.Fprintf(os.Stderr, "%% Error: %v: %v\n", e.Code(), e)
+				if e.Code() == kafka.ErrAllBrokersDown {
+					run = false
+				}
+
+			default:
+				fmt.Printf("Ignored %v\n", e)
+			}
 		}
 	}
 
-	consumer.Close()
+	fmt.Println("Closing consumer...")
 }
 
 func sendToAssetServer(data []byte, filename string) (string, error) {
