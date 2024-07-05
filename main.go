@@ -31,21 +31,7 @@ import (
 )
 
 type Settings struct {
-	AwsAccessKeyId           string `json:"aws_access_key_id"`
-	AwsSecretAccessKey       string `json:"aws_secret_access_key"`
-	AwsRegion                string `json:"aws_region"`
-	S3Bucket               string `json:"s3_bucket"`
-	StripePubKey             string `json:"stripe_pub_key"`
-	StripePrivateKey         string `json:"stripe_private_key"`
-	StripeTestPubKey         string `json:"stripe_test_pub_key"`
-	StripeTestPrivateKey     string `json:"stripe_test_private_key"`
-	StripeMode               string `json:"stripe_mode"`
-	SmtpHost                 string `json:"smtp_host"`
-	SmtpPort                 string `json:"smtp_port"`
-	SmtpUser                 string `json:"smtp_user"`
-	SmtpPassword             string `json:"smtp_password"`
-	SmtpTls                  string `json:"smtp_tls"`
-	GoogleServiceAccountJson string `json:"google_service_account_json"`
+	Credentials map[string]string `json:"credentials"`
 }
 
 type recordingData struct {
@@ -252,10 +238,10 @@ func startRecordingsConsumer() {
 
 func sendToAssetServer(data []byte, filename string) (string, error) {
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(settings.AwsRegion),
+		Region: aws.String(settings.Credentials["aws_region"]),
 		Credentials: credentials.NewStaticCredentials(
-			settings.AwsAccessKeyId,
-			settings.AwsSecretAccessKey,
+			settings.Credentials["aws_access_key_id"],
+			settings.Credentials["aws_secret_access_key"],
 			"",
 		),
 	})
@@ -268,7 +254,7 @@ func sendToAssetServer(data []byte, filename string) (string, error) {
 
 	f := bytes.NewReader(data)
 	//bucket := os.Getenv("S3_BUCKET")
-	bucket := settings.S3Bucket
+	bucket := settings.Credentials["s3_bucket"]
 	if bucket == "" {
 		return "", fmt.Errorf("S3_BUCKET environment variable is not set")
 	}
@@ -287,7 +273,7 @@ func sendToAssetServer(data []byte, filename string) (string, error) {
 
 	s3Url := aws.StringValue(&result.Location)
 
-	fmt.Printf("file uploaded to, %s\n", s3Url)
+	fmt.Printf("file uploaded to, %s\r\n", s3Url)
 
 	// send back link to media
 	// url := createMediaUrl(key)
@@ -335,7 +321,7 @@ func processRecording(id int, storageId string, status string, storageServerIp s
 		}
 	}
 
-	fmt.Printf("sending recording %d to asset server", id)
+	fmt.Printf("sending recording %d to asset server\r\n", id)
 	//data :=[]byte("")
 	//filename := (uniq.String() + ".wav")
 	filename := (storageId+ ".wav")
@@ -345,7 +331,7 @@ func processRecording(id int, storageId string, status string, storageServerIp s
 		return err
 	}
 
-	fmt.Printf("generated S3 link: %s", link)
+	fmt.Printf("upload was successful. generated S3 link: %s\r\n", link)
 	stmt, err := db.Prepare("UPDATE recordings SET `s3_url` = ?, `status`='processed' WHERE `storage_id` = ?")
 	if err != nil {
 		return err
@@ -356,6 +342,17 @@ func processRecording(id int, storageId string, status string, storageServerIp s
 	if err != nil {
 		return err
 	}
+
+
+	// delete reocrding from file system
+	err = (*client).StoredRecording().Delete(src)
+
+	if err != nil {
+		fmt.Println("failed to delete recording from FS. error: " + err.Error())
+		return err	
+	}
+
+	fmt.Println("recording deleted from FS successfully.")
 	
 	return nil
 }
